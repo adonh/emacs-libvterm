@@ -167,8 +167,11 @@ the executable."
 
 ;;; Options
 
-(defcustom vterm-shell shell-file-name
-  "The shell that gets run in the vterm."
+(defcustom vterm-shell (or explicit-shell-file-name (getenv "ESHELL") shell-file-name)
+  "The shell that gets run in the vterm.
+By default, program used comes from variable `explicit-shell-file-name',
+ or (if that is nil) from the ESHELL environment variable,
+ or (if that is nil) from `shell-file-name'."
   :type 'string
   :group 'vterm)
 
@@ -798,7 +801,7 @@ Exceptions are defined by `vterm-keymap-exceptions'."
            :name "vterm"
            :buffer (current-buffer)
            :command
-           `("/bin/sh" "-c"
+           `(vterm-shell "-c"
              ,(format
                "stty -nl sane %s erase ^? rows %d columns %d >/dev/null && exec %s"
                ;; Some stty implementations (i.e. that of *BSD) do not
