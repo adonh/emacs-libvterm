@@ -167,12 +167,12 @@ the executable."
 
 ;;; Options
 
-(defcustom vterm-shell (or explicit-shell-file-name (getenv "ESHELL") shell-file-name)
-  "The shell that gets run in the vterm.
-By default, program used comes from variable `explicit-shell-file-name',
- or (if that is nil) from the ESHELL environment variable,
- or (if that is nil) from `shell-file-name'."
-  :type 'string
+(defcustom vterm-shell nil
+  "When set to non-nil list, override the default shell that gets run in the vterm.
+
+The list should start with the program file name, followed by optional
+strings to give to the program as arguments."
+  :type '(repeat string)
   :group 'vterm)
 
 (defcustom vterm-tramp-shells
@@ -801,7 +801,7 @@ Exceptions are defined by `vterm-keymap-exceptions'."
            :name "vterm"
            :buffer (current-buffer)
            :command
-           `(vterm-shell "-c"
+           `(,@(vterm-shell) "-c"
              ,(format
                "stty -nl sane %s erase ^? rows %d columns %d >/dev/null && exec %s"
                ;; Some stty implementations (i.e. that of *BSD) do not
@@ -847,6 +847,18 @@ Exceptions are defined by `vterm-keymap-exceptions'."
   ;; Is this necessary? See vterm--compilation-setup
   (setq next-error-function 'vterm-next-error-function)
   (setq-local bookmark-make-record-function 'vterm--bookmark-make-record))
+
+(defun vterm-shell ()
+  "Get the shell that gets run in the vterm, as a list.
+
+Use the variable `vterm-shell' if not nil.  Otherwise,
+by default, program used comes from variable `explicit-shell-file-name',
+ or (if that is nil) from the ESHELL environment variable,
+ or (if that is nil) from `shell-file-name'."
+  (or vterm-shell
+      (list (or explicit-shell-file-name
+                (getenv "ESHELL")
+                shell-file-name))))
 
 (defun vterm--tramp-get-shell (method)
   "Get the shell for a remote location as specified in `vterm-tramp-shells'.
@@ -896,14 +908,13 @@ for, or t to get the default shell for all methods."
       first)))
 
 (defun vterm--get-shell ()
-  "Get the shell that gets run in the vterm."
-  (if (ignore-errors (file-remote-p default-directory))
-      (with-parsed-tramp-file-name default-directory nil
-        (or (vterm--tramp-get-shell method)
-            (vterm--tramp-get-shell t)
-            (with-connection-local-variables shell-file-name)
-            vterm-shell))
-    vterm-shell))
+  "Get the shell string that gets run in the vterm."
+  (or (when (ignore-errors (file-remote-p default-directory))
+        (with-parsed-tramp-file-name default-directory nil
+          (or (list (vterm--tramp-get-shell method)
+                    (vterm--tramp-get-shell t)
+                    (with-connection-local-variables shell-file-name)))))
+      (string-join (vterm-shell) " ")))
 
 (defun vterm--bookmark-make-record ()
   "Create a vterm bookmark.
