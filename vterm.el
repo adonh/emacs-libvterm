@@ -168,11 +168,19 @@ the executable."
 ;;; Options
 
 (defcustom vterm-shell nil
-  "When set to non-nil list, override the default shell that gets run in the vterm.
+  "The program to start an external terminal.
 
-The list should start with the program file name, followed by optional
-strings to give to the program as arguments."
-  :type '(repeat string)
+This should be a string or a list of strings.
+If nil, uses the shell used by `shell-mode'."
+  :type '(choice string (repeat string))
+  :group 'vterm)
+
+(defcustom vterm-root-shell "/bin/sh"
+  "The program to launch the `vtemr-shell' terminal command.
+
+This should be a string or a list of strings.
+If nil, uses the shell used by `shell-mode' (minus \"-i\")."
+  :type '(choice string (repeat string))
   :group 'vterm)
 
 (defcustom vterm-tramp-shells
@@ -196,6 +204,14 @@ that is used when the login-shell detection fails, e.g.,
 If no second SHELL command is specified with \\='login-shell, vterm will
 fall back to tramp's shell."
   :type '(alist :key-type string :value-type string)
+  :group 'vterm)
+
+(defcustom vterm-start-shell "/bin/sh"
+  "The shell that starts the vterm shell.
+
+This should be a string or a list of strings.
+If nil, uses the default shell."
+  :type '(choice string (repeat string))
   :group 'vterm)
 
 (defcustom vterm-buffer-name "*vterm*"
@@ -801,7 +817,7 @@ Exceptions are defined by `vterm-keymap-exceptions'."
            :name "vterm"
            :buffer (current-buffer)
            :command
-           `(,@(vterm-shell) "-c"
+           `(,@(vterm--start-shell-command) "-c"
              ,(format
                "stty -nl sane %s erase ^? rows %d columns %d >/dev/null && exec %s"
                ;; Some stty implementations (i.e. that of *BSD) do not
@@ -847,18 +863,6 @@ Exceptions are defined by `vterm-keymap-exceptions'."
   ;; Is this necessary? See vterm--compilation-setup
   (setq next-error-function 'vterm-next-error-function)
   (setq-local bookmark-make-record-function 'vterm--bookmark-make-record))
-
-(defun vterm-shell ()
-  "Get the shell that gets run in the vterm, as a list.
-
-Use the variable `vterm-shell' if not nil.  Otherwise,
-by default, program used comes from variable `explicit-shell-file-name',
- or (if that is nil) from the ESHELL environment variable,
- or (if that is nil) from `shell-file-name'."
-  (or vterm-shell
-      (list (or explicit-shell-file-name
-                (getenv "ESHELL")
-                shell-file-name))))
 
 (defun vterm--tramp-get-shell (method)
   "Get the shell for a remote location as specified in `vterm-tramp-shells'.
@@ -907,6 +911,37 @@ for, or t to get the default shell for all methods."
           (or shell second))
       first)))
 
+(defun vterm--shell-command-core (shell-var-sym)
+  "Get the desired shell command, as a list.  Returned command list comes from
+the value of symbol SHELL-VAR-SYM as is,
+else if it is nil, what function `shell' does:
+from variable `explicit-shell-file-name'
+ or (if that is nil) from the `ESHELL' environment variable,
+ or (if that is nil) from `shell-file-name'
+combined with the shell's explicit shell args."
+  (or (pcase (symbol-value shell-var-sym)
+        ((pred null)
+          ;; return what `shell' returns:
+          (let* ((prog (or explicit-shell-file-name
+                           (getenv "ESHELL")
+                           shell-file-name))
+                 (name (file-name-nondirectory prog))
+                 (xargs-name (intern-soft (concat "explicit-" name "-args")))
+                 (args (and xargs-name (boundp xargs-name) (symbol-value xargs-name))))
+            (when prog
+              (cons prog args))))
+        ((and (pred list-of-strings-p) val) val)
+        ((and (pred stringp) val) (list val)))
+      (user-error "%s is malformed; it must be a string or a list of strings." shell-var-sym)))
+
+(defun vterm--shell-command ()
+  "Get the shell command list that gets run in the vterm."
+  (vterm--shell-command-core 'vterm-shell))
+
+(defun vterm--start-shell-command ()
+  "Get the local shell command list that launches the above `vterm-shell'."
+  (remove "-i" (vterm--shell-command-core 'vterm-start-shell)))
+
 (defun vterm--get-shell ()
   "Get the shell string that gets run in the vterm."
   (or (when (ignore-errors (file-remote-p default-directory))
@@ -914,7 +949,7 @@ for, or t to get the default shell for all methods."
           (or (list (vterm--tramp-get-shell method)
                     (vterm--tramp-get-shell t)
                     (with-connection-local-variables shell-file-name)))))
-      (string-join (vterm-shell) " ")))
+      (string-join (vterm--shell-command) " ")))
 
 (defun vterm--bookmark-make-record ()
   "Create a vterm bookmark.
